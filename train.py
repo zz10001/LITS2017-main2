@@ -108,17 +108,14 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None):
+def train(args, train_loader, model, criterion, optimizer, epoch):
     losses = AverageMeter()
     ious = AverageMeter()
-    dices = AverageMeter()
+    dices_1s = AverageMeter()
+    dices_2s = AverageMeter()
     model.train()
 
     for i, (input, target) in tqdm(enumerate(train_loader), total=len(train_loader)):
-
-        #print(input.shape)
-        #print(target.shape)
-        #v = input()
         input = input.cuda()
         target = target.cuda()
 
@@ -134,11 +131,13 @@ def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None
             output = model(input)
             loss = criterion(output, target)
             iou = iou_score(output, target)
-            dice = dice_coef(output, target)
+            dice_1 = dice_coef(output, target)[0]
+            dice_2 = dice_coef(output, target)[1]
 
         losses.update(loss.item(), input.size(0))
         ious.update(iou, input.size(0))
-        dices.update(dice, input.size(0))
+        dices_1s.update(torch.tensor(dice_1), input.size(0))
+        dices_2s.update(torch.tensor(dice_2), input.size(0))
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -148,7 +147,8 @@ def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None
     log = OrderedDict([
         ('loss', losses.avg),
         ('iou', ious.avg),
-        ('dice', dices.avg)
+        ('dice_1', dices_1s.avg),
+        ('dice_2', dices_2s.avg)
     ])
 
     return log
@@ -157,7 +157,8 @@ def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None
 def validate(args, val_loader, model, criterion):
     losses = AverageMeter()
     ious = AverageMeter()
-    dices = AverageMeter()
+    dices_1s = AverageMeter()
+    dices_2s = AverageMeter()
 
     # switch to evaluate mode
     model.eval()
@@ -179,57 +180,61 @@ def validate(args, val_loader, model, criterion):
                 output = model(input)
                 loss = criterion(output, target)
                 iou = iou_score(output, target)
-                dice = dice_coef(output, target)
+                dice_1 = dice_coef(output, target)[0]
+                dice_2 = dice_coef(output, target)[1]
 
             losses.update(loss.item(), input.size(0))
             ious.update(iou, input.size(0))
-            dices.update(dice,input.size(0))
+            dices_1s.update(torch.tensor(dice_1), input.size(0))
+            dices_2s.update(torch.tensor(dice_2), input.size(0))
 
     log = OrderedDict([
         ('loss', losses.avg),
         ('iou', ious.avg),
-        ('dice', dices.avg)
+        ('dice_1', dices_1s.avg),
+        ('dice_2', dices_2s.avg)
     ])
 
     return log
 
-
 def main():
     args = parse_args()
+    #args.dataset = "datasets"
 
     if args.name is None:
         if args.deepsupervision:
-            args.name = '%s_%s_wDS' %(args.dataset, args.arch)
+            args.name = '%s_%s_lym' %(args.dataset, args.arch)
         else:
-            args.name = '%s_%s_woDS' %(args.dataset, args.arch)
-    if not os.path.exists('models/%s' %args.name):
-        os.makedirs('models/%s' %args.name)
+            args.name = '%s_%s_lym' %(args.dataset, args.arch)
+    timestamp  = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    if not os.path.exists('models/{}/{}'.format(args.name,timestamp)):
+        os.makedirs('models/{}/{}'.format(args.name,timestamp))
 
     print('Config -----')
     for arg in vars(args):
         print('%s: %s' %(arg, getattr(args, arg)))
     print('------------')
 
-    with open('models/%s/args.txt' %args.name, 'w') as f:
+    with open('models/{}/{}/args.txt'.format(args.name,timestamp), 'w') as f:
         for arg in vars(args):
             print('%s: %s' %(arg, getattr(args, arg)), file=f)
 
-    joblib.dump(args, 'models/%s/args.pkl' %args.name)
+    joblib.dump(args, 'models/{}/{}/args.pkl'.format(args.name,timestamp))
 
     # define loss function (criterion)
     if args.loss == 'BCEWithLogitsLoss':
         criterion = nn.BCEWithLogitsLoss().cuda()
     else:
-        criterion = losses.__dict__[args.loss]().cuda()
+        criterion = losses.BCEDiceLoss().cuda()
 
     cudnn.benchmark = True
 
     # Data loading code
-    img_paths = glob('../data/train_image/*')
-    mask_paths = glob('../data/train_mask/*')
+    img_paths = glob('./data/train_image/*')
+    mask_paths = glob('./data/train_mask/*')
 
     train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = \
-        train_test_split(img_paths, mask_paths, test_size=0.2, random_state=41)
+        train_test_split(img_paths, mask_paths, test_size=0.3, random_state=39)
     print("train_num:%s"%str(len(train_img_paths)))
     print("val_num:%s"%str(len(val_img_paths)))
 
@@ -266,7 +271,7 @@ def main():
         drop_last=False)
 
     log = pd.DataFrame(index=[], columns=[
-        'epoch', 'lr', 'loss', 'iou','dice','val_loss', 'val_iou','val_dice'
+        'epoch', 'lr', 'loss', 'iou','dice_1', 'dice_2', 'val_loss', 'val_iou','val_dice_1', 'val_dice_2'
     ])
 
     best_iou = 0
@@ -287,19 +292,21 @@ def main():
             args.lr,
             train_log['loss'],
             train_log['iou'],
-            train_log['dice'],
+            train_log['dice_1'],
+            train_log['dice_2'],
             val_log['loss'],
             val_log['iou'],
-            val_log['dice'],
-        ], index=['epoch', 'lr', 'loss', 'iou', 'dice' ,'val_loss', 'val_iou', 'val_dice'])
+            val_log['dice_1'],
+            val_log['dice_2'],
+        ], index=['epoch', 'lr', 'loss', 'iou', 'dice_1' ,'dice_2' ,'val_loss', 'val_iou', 'val_dice_1' ,'val_dice_2'])
 
         log = log.append(tmp, ignore_index=True)
-        log.to_csv('models/%s/log.csv' %args.name, index=False)
+        log.to_csv('models/{}/{}/log.csv'.format(args.name,timestamp), index=False)
 
         trigger += 1
 
         if val_log['iou'] > best_iou:
-            torch.save(model.state_dict(), 'models/%s/model.pth' %args.name)
+            torch.save(model.state_dict(), 'models/{}/{}/epoch{}-{:.4f}-{:.4f}_model.pth'.format(args.name,timestamp,epoch,val_log['dice_1'],val_log['dice_2']))
             best_iou = val_log['iou']
             print("=> saved best model")
             trigger = 0
