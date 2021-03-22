@@ -66,7 +66,7 @@ for file in os.listdir(images_path):
     print(os.path.join(images_path,file),os.path.join(labels_path,file))
     # 1、读取数据  
     image_src = sitk.ReadImage(os.path.join(images_path,file), sitk.sitkInt16)
-    mask_src = sitk.ReadImage(os.path.join(labels_path,file), sitk.sitkUInt8)
+    mask_src = sitk.ReadImage(os.path.join(labels_path,file.replace('volume','segmentation')), sitk.sitkUInt8)
     image_array = sitk.GetArrayFromImage(image_src)
     mask_array = sitk.GetArrayFromImage(mask_src)
     
@@ -135,7 +135,7 @@ for file in os.listdir(images_path):
     #保存
     for j in range(samples):
         train_image_path = trainImage + "/" + str(file.split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
-        train_mask_path = trainMask + "/" + str(file.split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
+        train_mask_path = trainMask + "/" + str(file.replace('volume','segmentation').split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
         np.save(train_image_path, image_last_list[j,:,:,:])
         np.save(train_mask_path, mask_last_list[j,:,:,:])
     
