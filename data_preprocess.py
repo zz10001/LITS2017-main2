@@ -133,6 +133,7 @@ for file in os.listdir(images_path):
     
     #print(samples)
     #保存
+    
     for j in range(samples):
         train_image_path = trainImage + "/" + str(file.split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
         train_mask_path = trainMask + "/" + str(file.replace('volume','segmentation').split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
