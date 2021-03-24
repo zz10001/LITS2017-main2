@@ -61,7 +61,7 @@ class unet3d(nn.Module):
     def __init__(self, args):
         super(unet3d, self).__init__()
         init_channels = 1
-        class_nums = 2
+        class_nums = 1
         batch_norm = True
         sample = True
 
