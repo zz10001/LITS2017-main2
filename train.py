@@ -8,7 +8,7 @@ from glob import glob
 from collections import OrderedDict
 import random
 import warnings
-from datetime import datetime
+import datetime
 
 import numpy as np
 from tqdm import tqdm
@@ -66,11 +66,11 @@ def parse_args():
                         help='loss: ' +
                             ' | '.join(loss_names) +
                             ' (default: BCEDiceLoss)')
-    parser.add_argument('--epochs', default=300, type=int, metavar='N',
+    parser.add_argument('--epochs', default=500, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--early-stop', default=50, type=int,
                         metavar='N', help='early stopping (default: 20)')
-    parser.add_argument('-b', '--batch-size', default=3, type=int,
+    parser.add_argument('-b', '--batch-size', default=4, type=int,
                         metavar='N', help='mini-batch size (default: 16)')
     parser.add_argument('--optimizer', default='Adam',
                         choices=['Adam', 'SGD'],
@@ -108,14 +108,17 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def train(args, train_loader, model, criterion, optimizer, epoch):
+def train(args, train_loader, model, criterion, optimizer, epoch, scheduler=None):
     losses = AverageMeter()
     ious = AverageMeter()
-    dices_1s = AverageMeter()
-    dices_2s = AverageMeter()
+    dices = AverageMeter()
     model.train()
 
     for i, (input, target) in tqdm(enumerate(train_loader), total=len(train_loader)):
+
+        #print(input.shape)
+        #print(target.shape)
+        #v = input()
         input = input.cuda()
         target = target.cuda()
 
@@ -131,13 +134,11 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
             output = model(input)
             loss = criterion(output, target)
             iou = iou_score(output, target)
-            dice_1 = dice_coef(output, target)[0]
-            dice_2 = dice_coef(output, target)[1]
+            dice = dice_coef(output, target)
 
         losses.update(loss.item(), input.size(0))
         ious.update(iou, input.size(0))
-        dices_1s.update(torch.tensor(dice_1), input.size(0))
-        dices_2s.update(torch.tensor(dice_2), input.size(0))
+        dices.update(dice, input.size(0))
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -147,8 +148,7 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
     log = OrderedDict([
         ('loss', losses.avg),
         ('iou', ious.avg),
-        ('dice_1', dices_1s.avg),
-        ('dice_2', dices_2s.avg)
+        ('dice', dices.avg)
     ])
 
     return log
@@ -157,8 +157,7 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
 def validate(args, val_loader, model, criterion):
     losses = AverageMeter()
     ious = AverageMeter()
-    dices_1s = AverageMeter()
-    dices_2s = AverageMeter()
+    dices = AverageMeter()
 
     # switch to evaluate mode
     model.eval()
@@ -180,22 +179,20 @@ def validate(args, val_loader, model, criterion):
                 output = model(input)
                 loss = criterion(output, target)
                 iou = iou_score(output, target)
-                dice_1 = dice_coef(output, target)[0]
-                dice_2 = dice_coef(output, target)[1]
+                dice = dice_coef(output, target)
 
             losses.update(loss.item(), input.size(0))
             ious.update(iou, input.size(0))
-            dices_1s.update(torch.tensor(dice_1), input.size(0))
-            dices_2s.update(torch.tensor(dice_2), input.size(0))
+            dices.update(dice,input.size(0))
 
     log = OrderedDict([
         ('loss', losses.avg),
         ('iou', ious.avg),
-        ('dice_1', dices_1s.avg),
-        ('dice_2', dices_2s.avg)
+        ('dice', dices.avg)
     ])
 
     return log
+
 
 def main():
     args = parse_args()
@@ -234,15 +231,15 @@ def main():
     mask_paths = glob('./data/train_mask/*')
 
     train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = \
-        train_test_split(img_paths, mask_paths, test_size=0.3, random_state=39)
+        train_test_split(img_paths, mask_paths, test_size=0.2, random_state=41)
     print("train_num:%s"%str(len(train_img_paths)))
     print("val_num:%s"%str(len(val_img_paths)))
 
 
     # create model
     print("=> creating model %s" %args.arch)
-    model = unet3d.__dict__[args.arch](args)
-    model = model.cuda()
+    model = unet3d.unet3d(args)
+    model = torch.nn.DataParallel(model).cuda()
     #model._initialize_weights()
     #model.load_state_dict(torch.load('model.pth'))
 
@@ -271,10 +268,10 @@ def main():
         drop_last=False)
 
     log = pd.DataFrame(index=[], columns=[
-        'epoch', 'lr', 'loss', 'iou','dice_1', 'dice_2', 'val_loss', 'val_iou','val_dice_1', 'val_dice_2'
+        'epoch', 'lr', 'loss', 'iou','dice','val_loss', 'val_iou','val_dice'
     ])
 
-    best_iou = 0
+    best_loss = 100
     trigger = 0
     for epoch in range(args.epochs):
         print('Epoch [%d/%d]' %(epoch, args.epochs))
@@ -292,22 +289,22 @@ def main():
             args.lr,
             train_log['loss'],
             train_log['iou'],
-            train_log['dice_1'],
-            train_log['dice_2'],
+            train_log['dice'],
             val_log['loss'],
             val_log['iou'],
-            val_log['dice_1'],
-            val_log['dice_2'],
-        ], index=['epoch', 'lr', 'loss', 'iou', 'dice_1' ,'dice_2' ,'val_loss', 'val_iou', 'val_dice_1' ,'val_dice_2'])
+            val_log['dice'],
+        ], index=['epoch', 'lr', 'loss', 'iou', 'dice' ,'val_loss', 'val_iou', 'val_dice'])
 
         log = log.append(tmp, ignore_index=True)
         log.to_csv('models/{}/{}/log.csv'.format(args.name,timestamp), index=False)
 
+
         trigger += 1
 
-        if val_log['iou'] > best_iou:
-            torch.save(model.state_dict(), 'models/{}/{}/epoch{}-{:.4f}-{:.4f}_model.pth'.format(args.name,timestamp,epoch,val_log['dice_1'],val_log['dice_2']))
-            best_iou = val_log['iou']
+        val_loss = val_log['loss']
+        if val_loss < best_loss:
+            torch.save(model.state_dict(), 'models/{}/{}/epoch{}-{:.4f}_model.pth'.format(args.name,timestamp,epoch,val_log['dice']))
+            best_loss = val_loss
             print("=> saved best model")
             trigger = 0
 
@@ -322,4 +319,5 @@ def main():
 
 
 if __name__ == '__main__':
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0,2'
     main()

@@ -2,8 +2,8 @@ import os
 import numpy as np
 import SimpleITK as sitk
 
-images_path = './LITS/images'
-labels_path = './LITS/labels'
+images_path = '../LITS2017/CT'
+labels_path = '../LITS2017/seg'
 if not os.path.exists(images_path):
     print("images_path 不存在")
 if not os.path.exists(labels_path):
@@ -32,13 +32,15 @@ if not os.path.exists(testMask):
     os.makedirs(testMask)
     print("testMask 输出目录创建成功")
 
-BLOCKSIZE = (96, 128, 160) #每个分块的大小
+BLOCKSIZE = (40, 128, 160) #每个分块的大小
 #处理训练数据
-MOVESIZE_Z = 30 #Z方向分块移动的步长
+MOVESIZE_Z = 20 #Z方向分块移动的步长
 MOVESIZE_XY = 64 #XY方向分块移动的步长
 TRAIN_TEXT_RATIO = 0.7 # 训练集占总数据的百分比，剩余为测试集
+expand_slice = 10
+size = 40
 
-def normalize(slice, bottom=99, down=1):
+def normalize(slice, bottom=99.5, down=0.5):
     """
     normalize image with mean and std for regionnonzero,and clip the value into range
     :param slice:
@@ -63,7 +65,7 @@ def normalize(slice, bottom=99, down=1):
         return tmp
 
 for file in os.listdir(images_path):
-    print(os.path.join(images_path,file),os.path.join(labels_path,file))
+    print(os.path.join(images_path,file),os.path.join(labels_path,file.replace('volume','segmentation')))
     # 1、读取数据  
     image_src = sitk.ReadImage(os.path.join(images_path,file), sitk.sitkInt16)
     mask_src = sitk.ReadImage(os.path.join(labels_path,file.replace('volume','segmentation')), sitk.sitkUInt8)
@@ -71,8 +73,39 @@ for file in os.listdir(images_path):
     mask_array = sitk.GetArrayFromImage(mask_src)
     
     # 2、对image分别进行标准化 
-    image_array_nor = normalize(image_array)   
+    image_array_nor = normalize(image_array)
 
+    # 将金标准中肝脏区域找到
+    seg_liver = mask_array.copy()
+    seg_liver[seg_liver>0] = 1
+    
+    # 获取有效区域Z轴（原来没有）
+    z = np.any(seg_liver, axis=(1, 2))
+    start_slice, end_slice = np.where(z)[0][[0, -1]]   
+
+        # 两个方向上各扩张个slice
+    if start_slice - expand_slice < 0:
+        start_slice = 0
+    else:
+        start_slice -= expand_slice
+
+    if end_slice + expand_slice >= seg_liver.shape[0]:
+        end_slice = seg_liver.shape[0] - 1
+    else:
+        end_slice += expand_slice
+
+    # 如果这时候剩下的slice数量不足size，直接放弃，这样的数据很少
+    if end_slice - start_slice + 1 < size:
+        print('!!!!!!!!!!!!!!!!')
+        print(file, 'too little slice')
+        print('!!!!!!!!!!!!!!!!')
+        continue
+
+    image_array_nor = image_array_nor[start_slice:end_slice + 1, :, :]
+    mask_array = mask_array[start_slice:end_slice + 1, :, :]
+
+    mask_array[mask_array==1]=0
+    mask_array[mask_array==2]=1
     # 3、人工加入的切片，使得z轴数据为BLOCKSIZE[0]的整数倍
     z_size = 0
     z_add = 0 #需要加入的片数

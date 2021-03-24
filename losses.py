@@ -16,31 +16,13 @@ class BCEDiceLoss(nn.Module):
     def forward(self, input, target):
         bce = F.binary_cross_entropy_with_logits(input, target)
         smooth = 1e-5
-        inputs = torch.sigmoid(input)
+        input = torch.sigmoid(input)
         num = target.size(0)
-        input_1 = inputs[:,0,:,:,:]
-        input_2 = inputs[:,1,:,:,:]
-
-        target_1 = target[:,0,:,:,:]
-        target_2 = target[:,1,:,:,:]
-
-        input_1 = input_1.view(num, -1)
-        target_1 = target_1.view(num, -1)
-
-        input_2 = input_2.view(num, -1)
-        target_2 = target_2.view(num, -1)
-
-        intersection_1 = (input_1 * target_1)
-        intersection_2 = (input_2 * target_2)
-
-        dice_1 = (2. * intersection_1.sum(1) + smooth) / (input_1.sum(1) + target_1.sum(1) + smooth)
-
-        dice_2 = (2. * intersection_2.sum(1) + smooth) / (input_2.sum(1) + target_2.sum(1) + smooth)
-
-        dice_1 = 1 - dice_1.sum() / num
-        dice_2 = 1 - dice_2.sum() / num
-
-        dice = dice_1*0.35+dice_2*0.65
+        input = input.view(num, -1)
+        target = target.view(num, -1)
+        intersection = (input * target)
+        dice = (2. * intersection.sum(1) + smooth) / (input.sum(1) + target.sum(1) + smooth)
+        dice = 1 - dice.sum() / num
         return 0.5 * bce + dice
 
 
