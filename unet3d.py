@@ -60,6 +60,7 @@ class unet3dUp(nn.Module):
 class unet3d(nn.Module):
     def __init__(self, args):
         super(unet3d, self).__init__()
+        
         self.args = args
         init_channels = 1
         class_nums = 1
