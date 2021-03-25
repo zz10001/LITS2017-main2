@@ -111,8 +111,8 @@ for file in os.listdir(images_path):
     z_add = 0 #需要加入的片数
     while True:
         z_size = z_size + BLOCKSIZE[0]
-        if( z_size > image_array.shape[0]):
-            z_add = z_size - image_array.shape[0]
+        if( z_size > image_array_nor.shape[0]):
+            z_add = z_size - image_array_nor.shape[0]
             break
     myblackslice = np.ones([512,512]) * int(-9) #黑色区域
     zeromaskslice = np.zeros([512,512])
