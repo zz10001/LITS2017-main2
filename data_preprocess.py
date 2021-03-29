@@ -32,6 +32,7 @@ if not os.path.exists(testMask):
     os.makedirs(testMask)
     print("testMask 输出目录创建成功")
 
+
 BLOCKSIZE = (64, 128, 160) #每个分块的大小
 #处理训练数据
 MOVESIZE_Z = 20 #Z方向分块移动的步长
