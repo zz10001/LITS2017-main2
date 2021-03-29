@@ -28,13 +28,13 @@ import torch.backends.cudnn as cudnn
 import torchvision
 from torchvision import datasets, models, transforms
 
-from dataset import Dataset
+from dataset.dataset import Dataset
 
-from metrics import dice_coef, batch_iou, mean_iou, iou_score
-import losses
-from utils import str2bool, count_params
+from utils.metrics import dice_coef, batch_iou, mean_iou, iou_score
+import utils.losses as losses
+from utils.utils import str2bool, count_params
 import pandas as pd
-import unet3d
+from net import unet3d
 
 arch_names = list(unet3d.__dict__.keys())
 loss_names = list(losses.__dict__.keys())
