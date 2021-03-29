@@ -63,7 +63,7 @@ class unet3d(nn.Module):
         
         self.args = args
         init_channels = 1
-        class_nums = 1
+        class_nums = 2
         batch_norm = True
         sample = True
 
