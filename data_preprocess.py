@@ -32,13 +32,13 @@ if not os.path.exists(testMask):
     os.makedirs(testMask)
     print("testMask 输出目录创建成功")
 
-BLOCKSIZE = (40, 128, 160) #每个分块的大小
+BLOCKSIZE = (64, 128, 160) #每个分块的大小
 #处理训练数据
 MOVESIZE_Z = 20 #Z方向分块移动的步长
 MOVESIZE_XY = 64 #XY方向分块移动的步长
 TRAIN_TEXT_RATIO = 0.7 # 训练集占总数据的百分比，剩余为测试集
 expand_slice = 10
-size = 40
+size = 64
 
 def normalize(slice, bottom=99.5, down=0.5):
     """
@@ -79,7 +79,7 @@ for file in os.listdir(images_path):
     seg_liver = mask_array.copy()
     seg_liver[seg_liver>0] = 1
     
-    # 获取有效区域Z轴（原来没有）
+    # 获取有效区域Z轴
     z = np.any(seg_liver, axis=(1, 2))
     start_slice, end_slice = np.where(z)[0][[0, -1]]   
 
@@ -104,8 +104,8 @@ for file in os.listdir(images_path):
     image_array_nor = image_array_nor[start_slice:end_slice + 1, :, :]
     mask_array = mask_array[start_slice:end_slice + 1, :, :]
 
-    mask_array[mask_array==1]=0
-    mask_array[mask_array==2]=1
+    # mask_array[mask_array==1]=0
+    # mask_array[mask_array==2]=1
     # 3、人工加入的切片，使得z轴数据为BLOCKSIZE[0]的整数倍
     z_size = 0
     z_add = 0 #需要加入的片数
@@ -120,7 +120,7 @@ for file in os.listdir(images_path):
         image_array_nor = np.insert(image_array_nor,image_array_nor.shape[0],myblackslice,axis = 0) #往z轴最后面加入切片
         mask_array = np.insert(mask_array,mask_array.shape[0],zeromaskslice,axis = 0)
     
-    # 4、分块处理    训练集不用注释，用这些   
+    # 4、分块处理   
     patch_block_size = BLOCKSIZE
     numberxy = MOVESIZE_XY
     numberz = MOVESIZE_Z   #z方向上每移动numberz，就取一个BLOCKSIZE块    #patch_block_size[0]
@@ -173,56 +173,3 @@ for file in os.listdir(images_path):
         np.save(train_image_path, image_last_list[j,:,:,:])
         np.save(train_mask_path, mask_last_list[j,:,:,:])
     
-
-    # 训练集不用注释，用这些 
-
-    # 测试集生成代码数据
-    # patch_block_size = BLOCKSIZE
-    # numberxy = BLOCKSIZE[1]
-    # numberz = BLOCKSIZE[0]   
-    
-    # width = np.shape(image_array_nor)[1] 
-    # height = np.shape(image_array_nor)[2] 
-    # imagez = np.shape(image_array_nor)[0]
-    
-    # block_width = np.array(patch_block_size)[1]
-    # block_height = np.array(patch_block_size)[2]
-    # blockz = np.array(patch_block_size)[0]
-    
-    # stridewidth = (width - block_width) // numberxy
-    # strideheight = (height - block_height) // numberxy
-    # stridez = (imagez - blockz) // numberz
-    
-    # step_width = width - (stridewidth * numberxy + block_width)
-    # step_width = step_width // 2
-    # step_height = height - (strideheight * numberxy + block_height)
-    # step_height = step_height // 2
-    # step_z = imagez - (stridez * numberz + blockz)
-    # step_z = step_z // 2
-                    
-    # image_array_nor_list = []
-    # mask_array_list = []
-    # patchnum = []
-    
-    # print(image_array_nor.shape)
-    # for z in range(step_z, numberz * (stridez + 1) + step_z, numberz):
-    #     for x in range(step_width, numberxy * (stridewidth + 1) + step_width, numberxy):
-    #         for y in range(step_height, numberxy * (strideheight + 1) + step_height, numberxy):
-    #             #if np.max(mask_array[z:z + blockz, x:x + block_width, y:y + block_height]) != 0: # 某个分块未进行打标签的将丢弃
-    #             #print("切%d"%z)
-    #             patchnum.append(str(z) + str('_') + str(x)+ str('_') + str(y))
-    #             image_array_nor_list.append(image_array_nor[z:z + blockz, x:x + block_width, y:y + block_height])
-    #             mask_array_list.append(mask_array[z:z + blockz, x:x + block_width, y:y + block_height])
-    
-    # image_last_list = np.array(image_array_nor_list).reshape((len(image_array_nor_list), blockz, block_width, block_height))
-    # mask_last_list = np.array(mask_array_list).reshape((len(mask_array_list), blockz, block_width, block_height))
-    
-    # samples, imagez, height, width = np.shape(image_last_list)[0], np.shape(image_last_list)[1], \
-    #                                 np.shape(image_last_list)[2], np.shape(image_last_list)[3]
-    
-    # #保存
-    # for j in range(samples):
-    #     test_image_path = testImage + "/" + str(file.split('.')[0])  + "_add_" + str(z_add) + "_patch_" + str(patchnum[j]) + ".npy"
-    #     test_mask_path = testMask + "/" + str(file.split('.')[0]) + "_add_" + str(z_add) + "_patch_" + str(patchnum[j]) + ".npy"
-    #     np.save(test_image_path, image_last_list[j,:,:,:])
-    #     np.save(test_mask_path, mask_last_list[j,:,:,:])
