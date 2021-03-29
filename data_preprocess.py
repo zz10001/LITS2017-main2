@@ -173,4 +173,3 @@ for file in os.listdir(images_path):
         train_mask_path = trainMask + "/" + str(file.replace('volume','segmentation').split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
         np.save(train_image_path, image_last_list[j,:,:,:])
         np.save(train_mask_path, mask_last_list[j,:,:,:])
-    
