@@ -1,45 +1,56 @@
 import os
 import numpy as np
 import SimpleITK as sitk
+import scipy.ndimage as ndimage
+from skimage.transform import resize
+import time
+import sys
+sys.path.append('../utils')
+from utils import *
 
-images_path = '../LITS2017/CT'
-labels_path = '../LITS2017/seg'
-if not os.path.exists(images_path):
-    print("images_path 不存在")
-if not os.path.exists(labels_path):
-    print("labels_path 不存在")
+def find_bb(volume):
+	img_shape = volume.shape
+	bb = np.zeros((6,), dtype=np.uint)
+	bb_extend = 3
+	# axis
+	for i in range(img_shape[0]):
+		img_slice_begin = volume[i,:,:]
+		if np.sum(img_slice_begin)>0:
+			bb[0] = np.max([i-bb_extend, 0])
+			break
 
-output_trainImage = './data/train_image'
-output_trainMask = './data/train_mask'
-output_testImage = './data/test_image'
-output_testMask = './data/test_mask'
+	for i in range(img_shape[0]):
+		img_slice_end = volume[img_shape[0]-1-i,:,:]
+		if np.sum(img_slice_end)>0:
+			bb[1] = np.min([img_shape[0]-1-i + bb_extend, img_shape[0]-1])
+			break
+	# seg
+	for i in range(img_shape[1]):
+		img_slice_begin = volume[:,i,:]
+		if np.sum(img_slice_begin)>0:
+			bb[2] = np.max([i-bb_extend, 0])
+			break
 
-trainImage = output_trainImage
-trainMask = output_trainMask
-if not os.path.exists(trainImage):
-    os.makedirs(output_trainImage)
-    print("trainImage 输出目录创建成功")
-if not os.path.exists(trainMask):
-    os.makedirs(trainMask)
-    print("trainMask 输出目录创建成功")
+	for i in range(img_shape[1]):
+		img_slice_end = volume[:,img_shape[1]-1-i,:]
+		if np.sum(img_slice_end)>0:
+			bb[3] = np.min([img_shape[1]-1-i + bb_extend, img_shape[1]-1])
+			break
 
-testImage = output_testImage
-testMask = output_testMask
-if not os.path.exists(testImage):
-    os.makedirs(testImage)
-    print("testImage 输出目录创建成功")
-if not os.path.exists(testMask):
-    os.makedirs(testMask)
-    print("testMask 输出目录创建成功")
+	# coronal
+	for i in range(img_shape[2]):
+		img_slice_begin = volume[:,:,i]
+		if np.sum(img_slice_begin)>0:
+			bb[4] = np.max([i-bb_extend, 0])
+			break
 
-
-BLOCKSIZE = (64, 128, 160) #每个分块的大小
-#处理训练数据
-MOVESIZE_Z = 20 #Z方向分块移动的步长
-MOVESIZE_XY = 64 #XY方向分块移动的步长
-TRAIN_TEXT_RATIO = 0.7 # 训练集占总数据的百分比，剩余为测试集
-expand_slice = 10
-size = 64
+	for i in range(img_shape[2]):
+		img_slice_end = volume[:,:,img_shape[2]-1-i]
+		if np.sum(img_slice_end)>0:
+			bb[5] = np.min([img_shape[2]-1-i+bb_extend, img_shape[2]-1])
+			break
+	
+	return bb
 
 def normalize(slice, bottom=99.5, down=0.5):
     """
@@ -65,111 +76,117 @@ def normalize(slice, bottom=99.5, down=0.5):
         tmp[tmp == tmp.min()] = -9
         return tmp
 
-for file in os.listdir(images_path):
-    print(os.path.join(images_path,file),os.path.join(labels_path,file.replace('volume','segmentation')))
-    # 1、读取数据  
-    image_src = sitk.ReadImage(os.path.join(images_path,file), sitk.sitkInt16)
-    mask_src = sitk.ReadImage(os.path.join(labels_path,file.replace('volume','segmentation')), sitk.sitkUInt8)
-    image_array = sitk.GetArrayFromImage(image_src)
-    mask_array = sitk.GetArrayFromImage(mask_src)
-    
-    # 2、对image分别进行标准化 
-    image_array_nor = normalize(image_array)
+def generate_subimage(ct_array,seg_array,stridez, stridex, stridey, blockz, blockx, blocky,
+					  idx,origin,direction,xyz_thickness,savedct_path,savedseg_path,ct_file):
+    num_z = (ct_array.shape[0]-blockz)//stridez + 1#math.floor()
+    num_x = (ct_array.shape[1]-blockx)//stridex + 1
+    num_y = (ct_array.shape[2]-blocky)//stridey + 1
 
-    # 将金标准中肝脏区域找到
-    seg_liver = mask_array.copy()
-    seg_liver[seg_liver>0] = 1
-    
-    # 获取有效区域Z轴
-    z = np.any(seg_liver, axis=(1, 2))
-    start_slice, end_slice = np.where(z)[0][[0, -1]]   
+    for z in range(num_z):
+        for x in range(num_x):
+            for y in range(num_y):
+                seg_block = seg_array[z*stridez:z*stridez+blockz,x*stridex:x*stridex+blockx,y*stridey:y*stridey+blocky]
+                if seg_block.any():
+                        ct_block = ct_array[z * stridez:z * stridez + blockz, x * stridex:x * stridex + blockx,
+                                        y * stridey:y * stridey + blocky]
+                        saved_ctname = os.path.join(savedct_path,'volume-'+str(idx) +'.npy')
+                        saved_segname = os.path.join(savedseg_path,'segmentation-'+str(idx)+'.npy')
+                        np.save(saved_ctname, ct_block)
+                        np.save(saved_segname, seg_block)
+                        idx = idx + 1
+    return idx
 
-        # 两个方向上各扩张个slice
-    if start_slice - expand_slice < 0:
-        start_slice = 0
-    else:
-        start_slice -= expand_slice
+def get_realfactor(spa,xyz,ct_array):
+    resize_factor = spa / xyz
+    print('resize',resize_factor)
+    new_real_shape = ct_array.shape * resize_factor[::-1]
+    print('new',new_real_shape)
+    new_shape = np.round(new_real_shape)
+    real_resize_factor = new_shape / ct_array.shape
+    return real_resize_factor
 
-    if end_slice + expand_slice >= seg_liver.shape[0]:
-        end_slice = seg_liver.shape[0] - 1
-    else:
-        end_slice += expand_slice
+def preprocess():
+    start_time = time.time()
+    ##########hyperparameters1##########
+    images_path = '../../LITS2017/CT'
+    labels_path = '../../LITS2017/seg'
+    if not os.path.exists(images_path):
+        print("images_path 不存在")
+    if not os.path.exists(labels_path):
+        print("labels_path 不存在")
 
-    # 如果这时候剩下的slice数量不足size，直接放弃，这样的数据很少
-    if end_slice - start_slice + 1 < size:
-        print('!!!!!!!!!!!!!!!!')
-        print(file, 'too little slice')
-        print('!!!!!!!!!!!!!!!!')
-        continue
+    savedct_path = '../data/train_image'
+    savedseg_path = '../data/train_mask'
 
-    image_array_nor = image_array_nor[start_slice:end_slice + 1, :, :]
-    mask_array = mask_array[start_slice:end_slice + 1, :, :]
+    trainImage = savedct_path
+    trainMask = savedseg_path
+    if not os.path.exists(trainImage):
+        os.makedirs(savedct_path)
+        print("trainImage 输出目录创建成功")
+    if not os.path.exists(trainMask):
+        os.makedirs(savedseg_path)
+        print("trainMask 输出目录创建成功")
 
-    # mask_array[mask_array==1]=0
-    # mask_array[mask_array==2]=1
-    # 3、人工加入的切片，使得z轴数据为BLOCKSIZE[0]的整数倍
-    z_size = 0
-    z_add = 0 #需要加入的片数
-    while True:
-        z_size = z_size + BLOCKSIZE[0]
-        if( z_size > image_array_nor.shape[0]):
-            z_add = z_size - image_array_nor.shape[0]
-            break
-    myblackslice = np.ones([512,512]) * int(-9) #黑色区域
-    zeromaskslice = np.zeros([512,512])
-    for i in range(z_add):
-        image_array_nor = np.insert(image_array_nor,image_array_nor.shape[0],myblackslice,axis = 0) #往z轴最后面加入切片
-        mask_array = np.insert(mask_array,mask_array.shape[0],zeromaskslice,axis = 0)
-    
-    # 4、分块处理   
-    patch_block_size = BLOCKSIZE
-    numberxy = MOVESIZE_XY
-    numberz = MOVESIZE_Z   #z方向上每移动numberz，就取一个BLOCKSIZE块    #patch_block_size[0]
-    
-    width = np.shape(image_array_nor)[1] 
-    height = np.shape(image_array_nor)[2] 
-    imagez = np.shape(image_array_nor)[0]
-    
-    block_width = np.array(patch_block_size)[1]
-    block_height = np.array(patch_block_size)[2]
-    blockz = np.array(patch_block_size)[0]
-    
-    stridewidth = (width - block_width) // numberxy
-    strideheight = (height - block_height) // numberxy
-    stridez = (imagez - blockz) // numberz
-    
-    step_width = width - (stridewidth * numberxy + block_width)
-    step_width = step_width // 2
-    step_height = height - (strideheight * numberxy + block_height)
-    step_height = step_height // 2
-    step_z = imagez - (stridez * numberz + blockz)
-    step_z = step_z // 2
-                    
-    image_array_nor_list = []
-    mask_array_list = []
-    patchnum = []
-    
-    print(image_array_nor.shape)
-    for z in range(step_z, numberz * (stridez + 1) + step_z, numberz):
-        for x in range(step_width, numberxy * (stridewidth + 1) + step_width, numberxy):
-            for y in range(step_height, numberxy * (strideheight + 1) + step_height, numberxy):
-                if np.max(mask_array[z:z + blockz, x:x + block_width, y:y + block_height]) != 0: # 某个分块未进行打标签的将丢弃
-                    #print("切%d"%z)
-                    patchnum.append(str(z) + str('_') + str(x)+ str('_') + str(y))
-                    image_array_nor_list.append(image_array_nor[z:z + blockz, x:x + block_width, y:y + block_height])
-                    mask_array_list.append(mask_array[z:z + blockz, x:x + block_width, y:y + block_height])
-    
-    image_last_list = np.array(image_array_nor_list).reshape((len(image_array_nor_list), blockz, block_width, block_height))
-    mask_last_list = np.array(mask_array_list).reshape((len(mask_array_list), blockz, block_width, block_height))
-    
-    samples, imagez, height, width = np.shape(image_last_list)[0], np.shape(image_last_list)[1], \
-                                    np.shape(image_last_list)[2], np.shape(image_last_list)[3]
-    
-    #print(samples)
-    #保存
-    
-    for j in range(samples):
-        train_image_path = trainImage + "/" + str(file.split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
-        train_mask_path = trainMask + "/" + str(file.replace('volume','segmentation').split('.')[0]) + "_patch_" + str(patchnum[j]) + ".npy"
-        np.save(train_image_path, image_last_list[j,:,:,:])
-        np.save(train_mask_path, mask_last_list[j,:,:,:])
+    #处理训练数据
+    saved_idx = 0
+    expand_slice = 10
+    new_spacing = [0.8, 0.8, 1.5]
+    blockz = 64;blockx = 128;blocky = 160   #每个分块的大小
+    stridez = blockz//6;stridex = blockx//5;stridey = blocky//4
+    for ct_file in os.listdir(images_path):#num_file
+        ct = sitk.ReadImage(os.path.join(images_path,ct_file), sitk.sitkInt16)# sitk.sitkInt16 Read one image using SimpleITK
+        origin = ct.GetOrigin()
+        direction = ct.GetDirection()
+        spacing = np.array(list(ct.GetSpacing()))
+        ct_array = sitk.GetArrayFromImage(ct)
+        
+        seg = sitk.ReadImage(os.path.join(labels_path,ct_file.replace('volume', 'segmentation')), sitk.sitkUInt8)
+        seg_array = sitk.GetArrayFromImage(seg)
+        print('-------',ct_file,'-------')
+        print('original space', np.array(ct.GetSpacing()))
+        print('original shape and spacing:',ct_array.shape, spacing)
+
+        # step1: spacing interpolation
+        real_resize_factor = get_realfactor(spacing,new_spacing,ct_array)
+        # 根据输出out_spacing设置新的size
+        ct_array = ndimage.zoom(ct_array, real_resize_factor, order=3)
+        # 对金标准插值不应该使用高级插值方式，这样会破坏边界部分,检查数据输出很重要！！！
+        # 使用order=1可确保zoomed seg unique = [0,1,2]
+        seg_array = ndimage.zoom(seg_array, real_resize_factor, order=0)
+
+        print('new space', new_spacing)
+        print('zoomed shape:', ct_array.shape, ',', seg_array.shape)
+
+        # step2 :get mask effective range(startpostion:endpostion)
+        pred_liver = seg_array.copy()
+        pred_liver[pred_liver>0] = 1
+        bb = find_bb(pred_liver)
+        ct_array = ct_array[bb[0]:bb[1],bb[2]:bb[3],bb[4]:bb[5]]
+        seg_array = seg_array[bb[0]:bb[1],bb[2]:bb[3],bb[4]:bb[5]]
+        print('effective shape:', ct_array.shape,',',seg_array.shape)
+        # step3:标准化Normalization
+        ct_array_nor = normalize(ct_array)
+
+        # step4:将得到的crop区域根据patch大小裁剪 64 128 160
+        if ct_array.shape[0] < blockz:
+            print('generate no subimage !')
+        else:
+            saved_idx = generate_subimage(ct_array_nor, seg_array,stridez, stridex, stridey, blockz, blockx, blocky,
+                            saved_idx, origin, direction,new_spacing,savedct_path,savedseg_path,ct_file)
+
+        print('Time {:.3f} min'.format((time.time() - start_time) / 60))
+        print(saved_idx)
+if __name__ == '__main__':
+    start_time = time.time()
+    logfile = '../logs/printLog0117'
+    if os.path.isfile(logfile):
+        os.remove(logfile)
+    sys.stdout = Logger(logfile)#see utils.py
+	##########hyperparameters##########
+    preprocess()
+
+	# Decide preprocess of different stride and window
+	# Decide_preprocess(blockzxy,config)
+
+    print('Time {:.3f} min'.format((time.time() - start_time) / 60))
+    print(time.strftime('%Y/%m/%d-%H:%M:%S', time.localtime()))
