@@ -132,7 +132,7 @@ def preprocess():
     expand_slice = 10
     new_spacing = [0.8, 0.8, 1.5]
     blockz = 64;blockx = 128;blocky = 160   #每个分块的大小
-    stridez = blockz//6;stridex = blockx//5;stridey = blocky//4
+    stridez = blockz//6;stridex = blockx//4;stridey = blocky//3
     for ct_file in os.listdir(images_path):#num_file
         ct = sitk.ReadImage(os.path.join(images_path,ct_file), sitk.sitkInt16)# sitk.sitkInt16 Read one image using SimpleITK
         origin = ct.GetOrigin()
@@ -167,7 +167,6 @@ def preprocess():
         # step3:标准化Normalization
         ct_array_nor = normalize(ct_array)
 
-        # step4:将得到的crop区域根据patch大小裁剪 64 128 160
         if ct_array.shape[0] < blockz:
             print('generate no subimage !')
         else:

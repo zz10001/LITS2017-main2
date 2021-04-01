@@ -111,19 +111,46 @@ def iou_score(output, target):
 
 
 def dice_coef(output, target):
-    smooth = 1e-5
+    # smooth = 1e-5
 
+    # if torch.is_tensor(output):
+    #     output = torch.sigmoid(output).data.cpu().numpy()
+    # if torch.is_tensor(target):
+    #     target = target.data.cpu().numpy()
+    # #output = torch.sigmoid(output).view(-1).data.cpu().numpy()
+    # #target = target.view(-1).data.cpu().numpy()
+
+    # intersection = (output * target).sum()
+
+    # return (2. * intersection + smooth) / \
+    #     (output.sum() + target.sum() + smooth)
+    smooth = 1e-5
+    num = output.shape[0]
     if torch.is_tensor(output):
         output = torch.sigmoid(output).data.cpu().numpy()
     if torch.is_tensor(target):
         target = target.data.cpu().numpy()
-    #output = torch.sigmoid(output).view(-1).data.cpu().numpy()
-    #target = target.view(-1).data.cpu().numpy()
+    # output = torch.sigmoid(output).data.cpu().numpy()
+    # target = target.data.cpu().numpy()
+    input_1 = output[:,0,:,:,:]
+    input_2 = output[:,1,:,:,:]
 
-    intersection = (output * target).sum()
+    target_1 = target[:,0,:,:,:]
+    target_2 = target[:,1,:,:,:]
 
-    return (2. * intersection + smooth) / \
-        (output.sum() + target.sum() + smooth)
+    # input_1 = input_1.view(num, -1)
+    # input_2 = input_2.view(num, -1)
+    # input_3 = input_3.view(num, -1)
+    # target_1 = target_1.view(num, -1)
+    # target_2 = target_2.view(num, -1)
+    # target_3 = target_3.view(num, -1)
+    intersection_1 = (input_1 * target_1)
+    intersection_2 = (input_2 * target_2)
+    # intersection_3 = (input_3 * target_3)
+    dice_1 = (2. * intersection_1.sum() + smooth) / (input_1.sum() + target_1.sum() + smooth)
+    dice_2 = (2. * intersection_2.sum() + smooth) / (input_2.sum() + target_2.sum() + smooth)
+
+    return dice_1,dice_2
 
 
 def accuracy(output, target):

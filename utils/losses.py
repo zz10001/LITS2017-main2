@@ -40,7 +40,7 @@ class BCEDiceLoss(nn.Module):
         dice_1 = 1 - dice_1.sum() / num
         dice_2 = 1 - dice_2.sum() / num
 
-        dice = dice_1*0.35+dice_2*0.65
+        dice = dice_1*0.4+dice_2*0.6
         return 0.5 * bce + dice
 
 

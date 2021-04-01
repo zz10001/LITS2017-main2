@@ -15,8 +15,11 @@ class Dataset(torch.utils.data.Dataset):
     def __init__(self, args, img_paths, mask_paths, aug=False):
         self.args = args
         self.img_paths = img_paths
-        self.mask_paths = mask_paths
+        self.mask_paths = list(map(lambda x: x.replace('volume', 'segmentation').replace('image','mask'), self.img_paths))
+        # self.mask_paths = mask_paths
         self.aug = aug
+
+        # print(self.img_paths,self.mask_paths)
 
     def __len__(self):
         return len(self.img_paths)
@@ -47,7 +50,7 @@ class Dataset(torch.utils.data.Dataset):
         npimage = npimage.astype("float32")
         #print(npimage.shape)
 
-        return npimage,npmask
+        return npimage,nplabel
 
 
        
