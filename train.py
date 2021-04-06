@@ -34,9 +34,9 @@ from utils.metrics import dice_coef, batch_iou, mean_iou, iou_score
 import utils.losses as losses
 from utils.utils import str2bool, count_params
 import pandas as pd
-from net import unet3d
+from net import unet3d,UNet
 
-arch_names = list(unet3d.__dict__.keys())
+arch_names = list(UNet.__dict__.keys())
 loss_names = list(losses.__dict__.keys())
 loss_names.append('BCEWithLogitsLoss')
 
@@ -46,7 +46,7 @@ def parse_args():
 
     parser.add_argument('--name', default=None,
                         help='model name: (default: arch+timestamp)')
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='unet3d',
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='UNet',
                         choices=arch_names,
                         help='model architecture: ' +
                             ' | '.join(arch_names) +
@@ -68,16 +68,16 @@ def parse_args():
                             ' (default: BCEDiceLoss)')
     parser.add_argument('--epochs', default=500, type=int, metavar='N',
                         help='number of total epochs to run')
-    parser.add_argument('--early-stop', default=50, type=int,
+    parser.add_argument('--early-stop', default=100, type=int,
                         metavar='N', help='early stopping (default: 20)')
-    parser.add_argument('-b', '--batch-size', default=3, type=int,
+    parser.add_argument('-b', '--batch-size', default=4, type=int,
                         metavar='N', help='mini-batch size (default: 16)')
     parser.add_argument('--optimizer', default='Adam',
                         choices=['Adam', 'SGD'],
                         help='loss: ' +
                             ' | '.join(['Adam', 'SGD']) +
                             ' (default: Adam)')
-    parser.add_argument('--lr', '--learning-rate', default=3e-5, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=3e-4, type=float,
                         metavar='LR', help='initial learning rate')
     parser.add_argument('--momentum', default=0.9, type=float,
                         help='momentum')
@@ -238,14 +238,14 @@ def main():
     mask_paths = glob('./data/train_mask/*')
 
     train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = \
-        train_test_split(img_paths, mask_paths, test_size=0.2, random_state=41)
+        train_test_split(img_paths, mask_paths, test_size=0.3, random_state=39)
     print("train_num:%s"%str(len(train_img_paths)))
     print("val_num:%s"%str(len(val_img_paths)))
 
 
     # create model
     print("=> creating model %s" %args.arch)
-    model = unet3d.unet3d(args)
+    model = UNet.UNet3d(in_channels=1, n_classes=2, n_channels=32)
     model = torch.nn.DataParallel(model).cuda()
     #model._initialize_weights()
     #model.load_state_dict(torch.load('model.pth'))
@@ -279,6 +279,7 @@ def main():
     ])
 
     best_loss = 100
+    # best_iou = 0
     trigger = 0
     first_time = time.time()
     for epoch in range(args.epochs):
@@ -311,7 +312,6 @@ def main():
         log = log.append(tmp, ignore_index=True)
         log.to_csv('models/{}/{}/log.csv'.format(args.name,timestamp), index=False)
 
-
         trigger += 1
 
         val_loss = val_log['loss']
@@ -332,5 +332,5 @@ def main():
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0,2'
     main()
