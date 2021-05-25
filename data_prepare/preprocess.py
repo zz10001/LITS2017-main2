@@ -32,19 +32,19 @@ def normalize(slice, bottom=99.5, down=0.5):
         tmp[tmp == tmp.min()] = -9
         return tmp
 
-def generate_subimage(ct_array,seg_array,stridez, stridex, stridey, blockz, blockx, blocky,
+def generate_subimage(ct_array,seg_array,numz, numx, numy, blockz, blockx, blocky,
 					  idx,origin,direction,xyz_thickness,savedct_path,savedseg_path,ct_file):
-    num_z = (ct_array.shape[0]-blockz)//stridez + 1#math.floor()
-    num_x = (ct_array.shape[1]-blockx)//stridex + 1
-    num_y = (ct_array.shape[2]-blocky)//stridey + 1
+    num_z = (ct_array.shape[0]-blockz)//numz + 1#math.floor()
+    num_x = (ct_array.shape[1]-blockx)//numx + 1
+    num_y = (ct_array.shape[2]-blocky)//numy + 1
 
-    for z in range(num_z):
-        for x in range(num_x):
-            for y in range(num_y):
-                seg_block = seg_array[z*stridez:z*stridez+blockz,x*stridex:x*stridex+blockx,y*stridey:y*stridey+blocky]
+    for z in range(numz):
+        for x in range(numx):
+            for y in range(numy):
+                seg_block = seg_array[z*num_z:z*num_z+blockz,x*num_x:x*num_x+blockx,y*num_y:y*num_y+blocky]
                 if seg_block.any():
-                        ct_block = ct_array[z * stridez:z * stridez + blockz, x * stridex:x * stridex + blockx,
-                                        y * stridey:y * stridey + blocky]
+                        ct_block = ct_array[z * num_z:z * num_z + blockz, x * num_x:x * num_x + blockx,
+                                        y * num_y:y * num_y + blocky]
                         saved_ctname = os.path.join(savedct_path,'volume-'+str(idx) +'.npy')
                         saved_segname = os.path.join(savedseg_path,'segmentation-'+str(idx)+'.npy')
                         np.save(saved_ctname, ct_block)
@@ -71,8 +71,8 @@ def preprocess():
     if not os.path.exists(labels_path):
         print("labels_path 不存在")
 
-    savedct_path = '../data/train_image'
-    savedseg_path = '../data/train_mask'
+    savedct_path = '../data/train_image1'
+    savedseg_path = '../data/train_mask1'
 
     trainImage = savedct_path
     trainMask = savedseg_path
@@ -88,7 +88,7 @@ def preprocess():
     expand_slice = 10
     new_spacing = [0.8, 0.8, 1.5]
     blockz = 64;blockx = 128;blocky = 160   #每个分块的大小
-    stridez = blockz//6;stridex = blockx//4;stridey = blocky//3
+    numz = 6;numx = 5;numy = 4
     for ct_file in os.listdir(images_path):#num_file
         ct = sitk.ReadImage(os.path.join(images_path,ct_file), sitk.sitkInt16)# sitk.sitkInt16 Read one image using SimpleITK
         origin = ct.GetOrigin()
@@ -126,7 +126,7 @@ def preprocess():
         if ct_array.shape[0] < blockz:
             print('generate no subimage !')
         else:
-            saved_idx = generate_subimage(ct_array_nor, seg_array,stridez, stridex, stridey, blockz, blockx, blocky,
+            saved_idx = generate_subimage(ct_array_nor, seg_array,numz, numx, numy, blockz, blockx, blocky,
                             saved_idx, origin, direction,new_spacing,savedct_path,savedseg_path,ct_file)
 
         print('Time {:.3f} min'.format((time.time() - start_time) / 60))
