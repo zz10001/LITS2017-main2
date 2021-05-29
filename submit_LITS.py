@@ -64,6 +64,81 @@ def parse_args():
 
     return args
 
+def generate_test_locations(image, patch_size, stride):
+    # 40-128-160, liver_patch shape
+    ww,hh,dd = image.shape
+    print('image.shape',ww,hh,dd)
+    sz = math.ceil((ww - patch_size[0]) / stride[0]) + 1
+    sx = math.ceil((hh - patch_size[1]) / stride[1]) + 1
+    sy = math.ceil((dd - patch_size[2]) / stride[2]) + 1
+
+    return (sz,sx,sy),(ww,hh,dd)
+
+def infer_tumorandliver(model,ct_array_nor,pad_p, tmp, cube_shape=(64,128,128),pred_threshold=0.6):
+    patch_size = cube_shape
+    patch_stride = [16,32,32]
+
+    mask_pred_containers = np.zeros((ct_array_nor.shape)).astype(np.float32)   #用来存放结果
+    locations,image_shape = generate_test_locations(ct_array_nor, patch_size, patch_stride)  #32 64 80
+    print('location',locations,image_shape)
+
+    seg_liver = np.zeros((1, )+(ct_array_nor.shape)).astype(np.float32)
+    cnt_liver = np.zeros((ct_array_nor.shape)).astype(np.float32)
+
+    seg_tumor = np.zeros((1, )+(ct_array_nor.shape)).astype(np.float32)
+    cnt_tumor = np.zeros((ct_array_nor.shape)).astype(np.float32)
+
+    print('seg_liver shape',seg_liver.shape)
+
+    print('   ')
+
+    for z in range(0,locations[0]):
+        zs =  min(patch_stride[0]*z, image_shape[0]-patch_size[0])
+        for x in range(0,locations[1]):
+            xs = min(patch_stride[1]*x, image_shape[1]-patch_size[1])
+            for y in range(0,locations[2]):
+                ys = min(patch_stride[2]*y, image_shape[2]-patch_size[2])
+                
+                patch = ct_array_nor[zs:zs + patch_size[0], 
+                                 xs:xs + patch_size[1], 
+                                 ys:ys + patch_size[2]]
+                # print('patch',patch)
+                patch = np.expand_dims(np.expand_dims(patch,axis=0),axis=0).astype(np.float32)
+                patch_tensor = torch.from_numpy(patch).cuda()
+
+                output = model(patch_tensor)
+                output = torch.sigmoid(output)
+                output = output.cpu().data.numpy()
+                # print('output',output.shape)
+                seg_liver[:, zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] \
+                    = seg_liver[:,zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] + output[0,0,:,:,:]
+            
+                cnt_liver[zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] \
+                    = cnt_liver[zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] + 1
+
+                seg_tumor[:, zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] \
+                    = seg_tumor[:,zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] + output[0,1,:,:,:]
+            
+                cnt_tumor[zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] \
+                    = cnt_tumor[zs:zs + patch_size[0], xs:xs + patch_size[1], ys:ys + patch_size[2]] + 1
+
+    seg_liver = seg_liver / np.expand_dims(cnt_liver,axis=0)
+    seg_tumor = seg_tumor / np.expand_dims(cnt_tumor,axis=0)
+
+    seg_liver = np.squeeze(seg_liver)
+    seg_tumor = np.squeeze(seg_tumor)
+
+    seg_liver = np.where(seg_liver>=pred_threshold, 1, 0)
+    seg_tumor = np.where(seg_tumor>=pred_threshold, 2, 0)
+
+    mask_pred_containers = seg_tumor + seg_liver
+    mask_pred_containers[mask_pred_containers>1]=2
+
+    # 弄回pad前大小
+    return mask_pred_containers[pad_p[0][0]:pad_p[0][0]+tmp[0],
+                                pad_p[1][0]:pad_p[1][0]+tmp[1],
+                                pad_p[2][0]:pad_p[2][0]+tmp[2]]
+                                
 def normalize(slice, bottom=99.5, down=0.5):
     """
     normalize image with mean and std for regionnonzero,and clip the value into range
