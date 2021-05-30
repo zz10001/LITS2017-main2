@@ -15,4 +15,5 @@ refer to [LITS2017-main1](https://github.com/zz10001/LITS2017-main1)
 To be continue...
 
 # Main reference
-`1.Liver Tumor Segmentation Using Triplanar Convolutional Neural Network: A Pilot Study`
+1.`Liver Tumor Segmentation Using Triplanar Convolutional Neural Network: A Pilot Study`  
+2.`U-Net: Convolutional Networks for Biomedical Image Segmentation`
